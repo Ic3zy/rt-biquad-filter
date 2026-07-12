@@ -22,7 +22,7 @@ uninstall:
 test:
 	@echo "running a quick compilation smoke test..."
 	@echo '#include "rt_biquad.h"\nint main() { return 0; }' > .test.c
-	$(CC) -O3 -Wall -Wextra -Iinclude test/test_core.c -o .test_run
+	$(CC) -O3 -msse4.2 -ffast-math -Wall -Wextra -Iinclude test/test_core.c -o .test_run -lm
 	@./.test_run && echo "syntax looks good!"
 	@rm -f .test.c .test_run
 

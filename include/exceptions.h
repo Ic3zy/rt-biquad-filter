@@ -2,5 +2,6 @@
 
 #define SUCCESS 0
 #define STATE_IS_NULL 2
+#define MEMORY_ALLOCATION_FAILED 3
 
 #endif
