@@ -51,29 +51,26 @@ static inline void destroy_state(struct rt_biquad_state *state)
     free(state);
 }
 
-static inline struct rt_band *create_band(float start_hz, float end_hz, float db_gain, float sample_rate)
+static inline void destroy_band(struct rt_band *band)
 {
-    struct rt_biquad_state *state_r = create_state();
-    struct rt_biquad_state *state_l = create_state();
-    if (state_r == NULL || state_l == NULL)
-    {
-        printf("Error: Memory allocation failed.\n");
-        if (state_r)
-            destroy_state(state_r);
-        if (state_l)
-            destroy_state(state_l);
-        return (struct rt_band *)(intptr_t)MEMORY_ALLOCATION_FAILED;
-    }
-    struct rt_band *band = (struct rt_band *)calloc(1, sizeof(struct rt_band));
+    printf("destroy band\n");
     if (band == NULL)
+        return;
+
+    if (band->state_right != NULL)
+        destroy_state(band->state_right);
+    if (band->state_left != NULL)
+        destroy_state(band->state_left);
+
+    free(band);
+}
+
+static inline int update_band(struct rt_band *band, float start_hz, float end_hz, float db_gain, float sample_rate)
+{
+    if (band == NULL || band->state_left == NULL || band->state_right == NULL)
     {
-        printf("Error: Memory allocation failed.\n");
-        destroy_state(state_r);
-        destroy_state(state_l);
-        return (struct rt_band *)(intptr_t)MEMORY_ALLOCATION_FAILED;
+        return STATE_IS_NULL;
     }
-    band->state_right = state_r;
-    band->state_left = state_l;
 
     band->hz = start_hz;
     band->end_hz = end_hz;
@@ -82,6 +79,7 @@ static inline struct rt_band *create_band(float start_hz, float end_hz, float db
     float center_hz = sqrtf(start_hz * end_hz);
     float N = logf(end_hz / start_hz) / 0.69314718f;
     float q = 1.0f / (2.0f * sinhf(0.34657359f * N));
+    band->q = q;
 
     float A = powf(10.0f, db_gain / 40.0f);
     float omega = 2.0f * 3.1415926535f * center_hz / sample_rate;
@@ -99,25 +97,46 @@ static inline struct rt_band *create_band(float start_hz, float end_hz, float db
 
     float inv_a0 = 1.0f / a0_raw;
 
-    band->q = q;
-
     update_state(band->state_left, b0 * inv_a0, b1 * inv_a0, b2 * inv_a0, a1 * inv_a0, a2 * inv_a0);
     update_state(band->state_right, b0 * inv_a0, b1 * inv_a0, b2 * inv_a0, a1 * inv_a0, a2 * inv_a0);
 
-    return band;
+    return SUCCESS;
 }
-static inline void destroy_band(struct rt_band *band)
+
+static inline struct rt_band *create_band(float start_hz, float end_hz, float db_gain, float sample_rate)
 {
-    printf("destroy band\n");
+    struct rt_biquad_state *state_r = create_state();
+    struct rt_biquad_state *state_l = create_state();
+    if (state_r == NULL || state_l == NULL)
+    {
+        printf("Error: Memory allocation failed.\n");
+        if (state_r)
+            destroy_state(state_r);
+        if (state_l)
+            destroy_state(state_l);
+        return (struct rt_band *)(intptr_t)MEMORY_ALLOCATION_FAILED;
+    }
+
+    struct rt_band *band = (struct rt_band *)calloc(1, sizeof(struct rt_band));
     if (band == NULL)
-        return;
+    {
+        printf("Error: Memory allocation failed.\n");
+        destroy_state(state_r);
+        destroy_state(state_l);
+        return (struct rt_band *)(intptr_t)MEMORY_ALLOCATION_FAILED;
+    }
 
-    if (band->state_right != NULL)
-        destroy_state(band->state_right);
-    if (band->state_left != NULL)
-        destroy_state(band->state_left);
+    band->state_right = state_r;
+    band->state_left = state_l;
 
-    free(band);
+    int result = update_band(band, start_hz, end_hz, db_gain, sample_rate);
+    if (result != SUCCESS)
+    {
+        destroy_band(band);
+        return (struct rt_band *)(intptr_t)result;
+    }
+
+    return band;
 }
 
 // Filtering                                               *array   sample
@@ -147,7 +166,9 @@ static inline void filter_from_hz_list(struct rt_band *bands, float *samples, in
 {
     for (int i = 0; i < band_count; i++)
     {
-        printf("filter band %d\n", i);
+        if (bands[i].db_gain == 0.0)
+            continue;
+
         for (int j = 0; j < length; j += 2)
         {
             samples[j] = process_sample(bands[i].state_left, samples[j]);
