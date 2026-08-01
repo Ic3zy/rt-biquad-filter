@@ -4,61 +4,51 @@
 #include "rt_biquad.h"
 
 #define BUFFER_SIZE 1024
-#define BAND_COUNT 3
+#define BAND_COUNT 4
 
 int main()
 {
-    FILE *fin = fopen("test.raw", "rb");
-    if (!fin)
-    {
-        printf("Error: Could not open test.raw.\n");
-        return 1;
-    }
-
-    FILE *fout = fopen("test_filtering.raw", "wb");
-    if (!fout)
-    {
-        printf("Error: Could not create test_filtering.raw.\n");
-        fclose(fin);
-        return 1;
-    }
-
     float sample_rate = 48000.0f;
     struct rt_band eq_bands[BAND_COUNT];
 
-    struct rt_band *b1 = create_band(20.0f, 200.0f, 6.0f, sample_rate);
-    struct rt_band *b2 = create_band(200.0f, 2000.0f, -3.0f, sample_rate);
-    struct rt_band *b3 = create_band(2000.0f, 20000.0f, 4.0f, sample_rate);
+    struct rt_band *b1 = create_band(RT_FILTER_LOW_SHELF, 80.0f, 0.0f, 0.0f, 6.0f, sample_rate);
+    struct rt_band *b2 = create_band(RT_FILTER_PEAK, 1000.0f, 0.0f, 0.7f, 4.0f, sample_rate);
+    struct rt_band *b3 = create_band(RT_FILTER_HIGH_SHELF, 10000.0f, 0.0f, 0.0f, 6.0f, sample_rate);
+    struct rt_band *b4 = create_band(RT_FILTER_GRAPHIC_EQ, 20.0f, 200.0f, 0.0f, 6.0f, sample_rate);
 
     if ((intptr_t)b1 == MEMORY_ALLOCATION_FAILED ||
         (intptr_t)b2 == MEMORY_ALLOCATION_FAILED ||
-        (intptr_t)b3 == MEMORY_ALLOCATION_FAILED)
+        (intptr_t)b3 == MEMORY_ALLOCATION_FAILED ||
+        (intptr_t)b4 == MEMORY_ALLOCATION_FAILED)
     {
         printf("Error: Memory allocation failed.\n");
-        fclose(fin);
-        fclose(fout);
         return 1;
     }
 
     eq_bands[0] = *b1;
     eq_bands[1] = *b2;
     eq_bands[2] = *b3;
+    eq_bands[3] = *b4;
 
-    printf("Processing stream using exact 5-parameter signature...\n");
-
-    float buffer[BUFFER_SIZE];
-    size_t samples_read;
-    size_t total_samples = 0;
-
-    while ((samples_read = fread(buffer, sizeof(float), BUFFER_SIZE, fin)) > 0)
+    // Test cached update_band call with identical parameters
+    int res = update_band(b1, RT_FILTER_LOW_SHELF, 80.0f, 0.0f, 0.0f, 6.0f, sample_rate);
+    if (res != SUCCESS)
     {
-        filter_from_hz_list(eq_bands, buffer, (int)samples_read, sample_rate, BAND_COUNT);
-
-        fwrite(buffer, sizeof(float), samples_read, fout);
-        total_samples += samples_read;
+        printf("Error: update_band cached call failed.\n");
+        return 1;
     }
 
-    printf("Done! Processed %lu samples.\n", total_samples);
+    printf("Processing test signal using updated API...\n");
+
+    float buffer[BUFFER_SIZE];
+    for (int i = 0; i < BUFFER_SIZE; i++)
+    {
+        buffer[i] = (float)(i % 100) / 100.0f;
+    }
+
+    filter_from_hz_list(eq_bands, buffer, BUFFER_SIZE, BAND_COUNT);
+
+    printf("Done! Filtered %d test samples successfully.\n", BUFFER_SIZE);
 
     for (int i = 0; i < BAND_COUNT; i++)
     {
@@ -66,7 +56,10 @@ int main()
         destroy_state(eq_bands[i].state_left);
     }
 
-    fclose(fin);
-    fclose(fout);
+    free(b1);
+    free(b2);
+    free(b3);
+    free(b4);
+
     return 0;
 }
